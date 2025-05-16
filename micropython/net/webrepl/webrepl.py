@@ -19,13 +19,13 @@ static_host = _DEFAULT_STATIC_HOST
 
 
 # This allows for overriding the log output from this module.
-def log(*args, **kwargs):
-    print(*args, **kwargs)
+def log(*args):
+    print(*args)
 
 
 def has_client():
     """Return True if a client is connected."""
-    return client_s is not None
+    return client_s is not None and client_s.fileno() >= 0
 
 
 def server_handshake(cl):
