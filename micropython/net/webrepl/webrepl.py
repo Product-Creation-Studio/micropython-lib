@@ -18,6 +18,16 @@ _DEFAULT_STATIC_HOST = const("https://micropython.org/webrepl/")
 static_host = _DEFAULT_STATIC_HOST
 
 
+# This allows for overriding the log output from this module.
+def log(*args, **kwargs):
+    print(*args, **kwargs)
+
+
+def has_client():
+    """Return True if a client is connected."""
+    return client_s is not None
+
+
 def server_handshake(cl):
     req = cl.makefile("rwb", 0)
     # Skip HTTP GET line.
@@ -40,7 +50,7 @@ def server_handshake(cl):
             sys.stdout.write(l)
         h, v = [x.strip() for x in l.split(b":", 1)]
         if DEBUG:
-            print((h, v))
+            log((h, v))
         if h == b"Sec-WebSocket-Key":
             webkey = v
         elif h == b"Connection" and b"Upgrade" in v:
@@ -52,14 +62,14 @@ def server_handshake(cl):
         return False
 
     if DEBUG:
-        print("Sec-WebSocket-Key:", webkey, len(webkey))
+        log("Sec-WebSocket-Key:", webkey, len(webkey))
 
     d = hashlib.sha1(webkey)
     d.update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
     respkey = d.digest()
     respkey = binascii.b2a_base64(respkey)[:-1]
     if DEBUG:
-        print("respkey:", respkey)
+        log("respkey:", respkey)
 
     cl.send(
         b"""\
@@ -105,7 +115,7 @@ def setup_conn(port, accept_handler):
     for i in (network.WLAN.IF_AP, network.WLAN.IF_STA):
         iface = network.WLAN(i)
         if iface.active():
-            print("WebREPL server started on http://%s:%d/" % (iface.ifconfig()[0], port))
+            log("WebREPL server started on http://%s:%d/" % (iface.ifconfig()[0], port))
     return listen_s
 
 
@@ -120,10 +130,10 @@ def accept_conn(listen_sock):
     prev = os.dupterm(None)
     os.dupterm(prev)
     if prev:
-        print("\nConcurrent WebREPL connection from", remote_addr, "rejected")
+        log("\nConcurrent WebREPL connection from", remote_addr, "rejected")
         cl.close()
         return False
-    print("\nWebREPL connection from:", remote_addr)
+    log("\nWebREPL connection from:", remote_addr)
     client_s = cl
 
     ws = websocket.websocket(cl, True)
@@ -142,8 +152,10 @@ def stop():
     os.dupterm(None)
     if client_s:
         client_s.close()
+        client_s = None
     if listen_s:
         listen_s.close()
+        listen_s = None
 
 
 def start(port=8266, password=None, accept_handler=accept_conn):
@@ -158,20 +170,20 @@ def start(port=8266, password=None, accept_handler=accept_conn):
             if hasattr(webrepl_cfg, "BASE"):
                 static_host = webrepl_cfg.BASE
         except:
-            print("WebREPL is not configured, run 'import webrepl_setup'")
+            log("WebREPL is not configured, run 'import webrepl_setup'")
 
     _webrepl.password(webrepl_pass)
     s = setup_conn(port, accept_handler)
 
     if accept_handler is None:
-        print("Starting webrepl in foreground mode")
+        log("Starting webrepl in foreground mode")
         # Run accept_conn to serve HTML until we get a websocket connection.
         while not accept_conn(s):
             pass
     elif password is None:
-        print("Started webrepl in normal mode")
+        log("Started webrepl in normal mode")
     else:
-        print("Started webrepl in manual override mode")
+        log("Started webrepl in manual override mode")
 
 
 def start_foreground(port=8266, password=None):
