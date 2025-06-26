@@ -1,6 +1,7 @@
 # MicroPython aiohttp library
 # MIT license; Copyright (c) 2023 Carlos Gil
-
+import time
+import gc
 import asyncio
 import json as _json
 from .aiohttp_ws import (
@@ -12,7 +13,6 @@ from .aiohttp_ws import (
 
 HttpVersion10 = "HTTP/1.0"
 HttpVersion11 = "HTTP/1.1"
-
 
 class ClientResponse:
     def __init__(self, reader):
@@ -94,12 +94,14 @@ class _RequestContextManager:
 
 
 class ClientSession:
-    def __init__(self, base_url="", headers={}, version=HttpVersion10):
+    # 20250313 modified to include timeout
+    def __init__(self, base_url="", headers={}, version=HttpVersion10, timeout=None):
         self._reader = None
         self._base_url = base_url
         self._base_headers = {"Connection": "close", "User-Agent": "compat"}
         self._base_headers.update(**headers)
         self._http_version = version
+        self._timeout = timeout
 
     async def __aenter__(self):
         return self
@@ -111,8 +113,13 @@ class ClientSession:
 
     async def _request(self, method, url, data=None, json=None, ssl=None, params=None, headers={}):
         redir_cnt = 0
+        if self._timeout is not None:
+            stop_time = time.ticks_ms() + int(1000 * self._timeout)
         while redir_cnt < 2:
-            reader = await self.request_raw(method, url, data, json, ssl, params, headers)
+            reader = await asyncio.wait_for_ms(
+                self.request_raw(method, url, data, json, ssl, params, headers),
+                None if self._timeout is None else (time.ticks_diff(stop_time, time.ticks_ms()))
+            )
             _headers = []
             sline = await reader.readline()
             sline = sline.split(None, 2)
@@ -190,8 +197,12 @@ class ClientSession:
         if ":" in host:
             host, port = host.split(":", 1)
             port = int(port)
-
-        reader, writer = await asyncio.open_connection(host, port, ssl=ssl)
+        try:
+            reader, writer = await asyncio.open_connection(host, port, ssl=ssl)
+        except asyncio.CancelledError:
+            self._request = None
+            gc.collect()
+            raise
 
         # Use protocol 1.0, because 1.1 always allows to use chunked transfer-encoding
         # But explicitly set Connection: close, even though this should be default for 1.0,
@@ -231,18 +242,21 @@ class ClientSession:
             return reader, writer
 
     def request(self, method, url, data=None, json=None, ssl=None, params=None, headers={}):
-        return _RequestContextManager(
-            self,
-            self._request(
-                method,
-                self._base_url + url,
-                data=data,
-                json=json,
-                ssl=ssl,
-                params=params,
-                headers=dict(**self._base_headers, **headers),
-            ),
-        )
+        try:
+            return _RequestContextManager(
+                self,
+                self._request(
+                    method,
+                    self._base_url + url,
+                    data=data,
+                    json=json,
+                    ssl=ssl,
+                    params=params,
+                    headers=dict(**self._base_headers, **headers),
+                ),
+            )
+        except asyncio.CancelledError:
+            print("request got Cancelled Error")
 
     def get(self, url, **kwargs):
         return self.request("GET", url, **kwargs)
@@ -273,3 +287,6 @@ class ClientSession:
         await ws_client.connect(url, ssl=ssl, handshake_request=self.request_raw)
         self._reader = ws_client.reader
         return ClientWebSocketResponse(ws_client)
+
+
+__version__ = '0.0.3'
