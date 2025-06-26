@@ -8,8 +8,14 @@ from .aiohttp_ws import (
     _WSRequestContextManager,
     ClientWebSocketResponse,
     WebSocketClient,
-    WSMsgType,
 )
+
+def log(*args):
+    """
+    A simple logging function that prints to stdout.
+    This can be overridden by the user to provide their own logging function.
+    """
+    print(*args)
 
 HttpVersion10 = "HTTP/1.0"
 HttpVersion11 = "HTTP/1.1"
@@ -38,7 +44,7 @@ class ClientResponse:
                     with deflate.DeflateIO(io.BytesIO(data), deflate.GZIP, 15) as d:
                         return d.read()
             except ImportError:
-                print("WARNING: deflate module required")
+                log("WARNING: deflate module required")
         return data
 
     async def read(self, sz=-1):
@@ -256,7 +262,7 @@ class ClientSession:
                 ),
             )
         except asyncio.CancelledError:
-            print("request got Cancelled Error")
+            log("request got Cancelled Error")
 
     def get(self, url, **kwargs):
         return self.request("GET", url, **kwargs)
